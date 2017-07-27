@@ -15,7 +15,7 @@ rx = re.compile(r'^[0-9]*$')
 
 class HTTPClient(Logger):
 
-    BASE_URL = 'https://discordapp.com/api/v6'
+    BASE_URL = 'https://discordapp.com/api/v7'
     RATELIMIT_REDIS_URL = os.getenv('RATELIMIT_REDIS_URL')
 
     def __init__(self, token):
