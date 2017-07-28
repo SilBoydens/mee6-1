@@ -177,6 +177,7 @@ class Reddit(Plugin):
                                             link=post['url'],
                                             thread="https://www.reddit.com" + post["permalink"])
             message = message.replace('@everyone', '@ everyone')
+            message = message.replace('@here', '@ here')
 
             if len(messages) == 0:
                 messages.append(message)
