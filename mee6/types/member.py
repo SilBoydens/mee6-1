@@ -12,6 +12,7 @@ class VoiceState(Model):
 
 class Member(Model):
     user = ModelField(User)
+    guild_permissions = Integer(default=0)
     nick = String()
     roles = List(Snowflake())
     joined_at = String()

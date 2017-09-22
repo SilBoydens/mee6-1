@@ -11,6 +11,9 @@ from mee6.utils import chunk, int2base
 from mee6.exceptions import APIException
 from mee6.discord import send_message, send_webhook_message
 from mee6.types import Guild
+from modus import Model
+from modus.exceptions import FieldValidationError
+from modus.fields import String, Snowflake, List
 from time import time
 
 MESSAGE_FORMAT = "`New post from /r/{subreddit}`\n\n"\
@@ -18,11 +21,29 @@ MESSAGE_FORMAT = "`New post from /r/{subreddit}`\n\n"\
                  "**Link** {link}\n"\
                  "**Thread** {thread} \n\n"
 
+class SubredditField(String):
+
+    ERRORS = {'invalid_subreddit': '"{0}" is not a valid subreddit name'}
+
+    @String.validator
+    def validate_subreddit(self, value):
+        pattern = r"\A[A-Za-z0-9][A-Za-z0-9_]{2,20}\Z"
+        if not re.match(pattern, value):
+            msg = self.ERRORS['invalid_subreddit'].format(value)
+            raise FieldValidationError(msg) from None
+
+
+class RedditConfig(Model):
+    subreddits = List(SubredditField())
+    announcement_channel = Snowflake()
+
+
 class Reddit(Plugin):
 
     id = "reddit"
     name = "Reddit"
     description = "Get posts from your favourite subreddits directly to your Discord server"
+    config_model = RedditConfig
 
     sender_queue = gevent.queue.Queue()
     sender_worker_instance = None
@@ -36,33 +57,17 @@ class Reddit(Plugin):
     subreddit_rx = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_]{2,20}\Z")
 
     def get_default_config(self, guild_id):
-        default_config = {'subreddits': [],
-                          'announcement_channel': guild_id}
-        return default_config
+        return RedditConfig(subreddits=[], announcement_channel=guild_id)
 
     def before_config_patch(self, guild_id, old_config, new_config):
-        for subreddit in old_config['subreddits']:
+        for subreddit in old_config.subreddits:
             key = 'plugin.{}.subreddit.{}.guilds'.format(self.id, subreddit)
             self.db.srem(key, guild_id)
 
     def after_config_patch(self, guild_id, config):
-        for subreddit in config['subreddits']:
+        for subreddit in config.subreddits:
             key = 'plugin.{}.subreddit.{}.guilds'.format(self.id, subreddit)
             self.db.sadd(key, guild_id)
-
-    def validate_config(self, guild_id, config):
-        valid_subreddits = []
-
-        for subreddit in config['subreddits']:
-            splitted = [s for s in subreddit.split('/') if s != ""]
-            if len(splitted) > 0:
-                sub = splitted[-1].lower()
-                if self.subreddit_rx.match(sub):
-                    valid_subreddits.append(sub)
-
-        config['subreddits'] = valid_subreddits
-
-        return config
 
     def get_access_token(self):
         client_id = os.getenv('REDDIT_CLIENT_ID')
@@ -75,6 +80,10 @@ class Reddit(Plugin):
         data = {'grant_type': 'client_credentials'}
         r = requests.post(url, auth=auth, headers=headers, data=data,
                           timeout=10)
+        if r.status_code != 200:
+            gevent.sleep(10)
+            return self.get_access_token()
+
         result = r.json()
 
         access_token = result['access_token']
@@ -187,7 +196,7 @@ class Reddit(Plugin):
                 else:
                     messages[-1] += message
 
-        announcement_channel = guild.config.get('announcement_channel')
+        announcement_channel = guild.config.announcement_channel
 
         webhook_id = 'reddit_announcement:{}'.format(announcement_channel)
         channel_id = announcement_channel or guild.id

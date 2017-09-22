@@ -35,7 +35,7 @@ class Worker(Logger):
         plugins_ids = [p.id for p in self.plugins]
         self.log('Loaded {} plugins: {}'.format(len(plugins_ids), ', '.join(plugins_ids)))
 
-        queue_names = ['mee6.dispatch.' + event.lower() for event in EVENTS]
+        queue_names = ['mee6.discord_event.' + event.lower() for event in EVENTS]
 
         self.log('Spawning {} listeners'.format(self.LISTNERS_COUNT))
         listeners = [gevent.spawn(self.listener, *queue_names) for _ in range(self.LISTNERS_COUNT)]
@@ -55,9 +55,9 @@ class Worker(Logger):
         if now > timestamp + EVENT_TIMEOUT:
             return
 
-        guild = payload['g']
+        guild_id = payload['g']
         for plugin in self.plugins:
-            if not plugin.is_global and not plugin.check_guild(guild['id']):
+            if not plugin.is_global and not plugin.check_guild(guild_id):
                 continue
 
             plugin.handle_event(payload)

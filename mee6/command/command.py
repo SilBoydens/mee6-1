@@ -3,7 +3,7 @@ import traceback
 import json
 
 from mee6.utils import get
-from mee6.rpc import get_guild_member
+from mee6.rpc import get_guild_member, get_guild
 from mee6.command.utils import build_regex
 from mee6.command import Response
 from mee6.utils.redis import GroupKeys, PrefixedRedis
@@ -14,13 +14,17 @@ from modus.exceptions import FieldValidationError
 
 
 class CommandContext:
-    def __init__(self, guild, message):
-        self.guild = guild
+    def __init__(self, guild_id, message):
+        self.guild_id = guild_id
         self.message = message
 
     @property
     def author(self):
-        return get_guild_member(self.guild.id, self.message.author.id)
+        return get_guild_member(self.guild_id, self.message.author.id)
+
+    @property
+    def guild(self):
+        return get_guild(self.guild_id)
 
 
 class CommandMatch:
@@ -126,18 +130,15 @@ class Command:
 
     def patch_config(self, guild, partial_new_config):
         guild_id = get(guild, 'id', guild)
-
         config = self.get_config(guild)
         for field_name in config.__class__._fields:
             new_value = partial_new_config.get(field_name)
             if new_value is not None:
                 setattr(config, field_name, new_value)
-
+        config.sanitize()
         config.validate()
-
         raw_config = json.dumps(config.serialize())
         self.config_db.set('config.{}'.format(guild_id), raw_config)
-
         return config
 
     def delete_config(self, guild):
@@ -145,7 +146,7 @@ class Command:
         self.config_db.delete('config.{}'.format(guild_id))
 
     def check_permission(self, ctx):
-        member_permissions = ctx.author.get_permissions(ctx.guild)
+        member_permissions = ctx.author.guild_permissions
 
         if ( member_permissions >> 5 & 1 ) or ( member_permissions >> 3 & 1):
             return True

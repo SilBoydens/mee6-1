@@ -1,6 +1,49 @@
 from mee6.utils import get
 from random import randint
 
+from modus import Model
+from modus.fields import String, Integer, Boolean, ModelField, List
+
+
+class EmbedFooter(Model):
+    text = String()
+    icon_url = String()
+    proxy_icon_url = String()
+
+class EmbedImage(Model):
+    url = String()
+    proxy_url = String()
+    height = Integer()
+    width = Integer()
+
+class EmbedThumbnail(Model):
+    url = String()
+    proxy_url = String()
+    height = Integer()
+    width = Integer()
+
+class EmbedAuthor(Model):
+    name = String()
+    url = String()
+    icon_url = String()
+    proxy_icon_url = String()
+
+class EmbedField(Model):
+    name = String()
+    value = String()
+    inline = Boolean(default=False)
+
+class MessageEmbed(Model):
+    title = String()
+    description = String()
+    url = String()
+    color = Integer()
+    footer = ModelField(EmbedFooter())
+    image = ModelField(EmbedImage())
+    thumbnail = ModelField(EmbedThumbnail())
+    author = ModelField(EmbedAuthor())
+    fields = List(ModelField(EmbedField()))
+
 def randomize(field_name, value, light=False):
     terms = ('icon',) if light else ('icon', 'url')
 

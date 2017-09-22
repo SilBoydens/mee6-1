@@ -8,6 +8,7 @@ from mee6.types import Guild
 from mee6.utils import Logger, get, json
 from mee6.utils.redis import GroupKeys, PrefixedRedis
 from mee6.command import Command
+from copy import deepcopy
 
 
 class Plugin(Logger):
@@ -84,7 +85,7 @@ class Plugin(Logger):
         if guild_storage:
             return guild_storage
 
-        prefix = 'plugin.{}.guild.{}.storage'.format(self.id, guild_id)
+        prefix = 'plugin.{}.guild.{}.storage.'.format(self.id, guild_id)
         guild_storage = PrefixedRedis(self.db, prefix)
         self.guild_storages[guild_id] = guild_storage
 
@@ -143,44 +144,53 @@ class Plugin(Logger):
         raw_config = self.config_db.get(key)
 
         if raw_config:
-            config = json.loads(raw_config)
+            config = self.config_model(**json.loads(raw_config))
         else:
             config = self.get_default_config(guild_id)
 
         return config
 
     def get_default_config(self, guild_id):
-        default_config = {}
-        return default_config
+        raise NotImplemented
 
-    def patch_config(self, guild, new_config):
+    def patch_config(self, guild, raw_config):
         guild_id = get(guild, 'id', guild)
-
-        old_config = self.get_config(guild_id)
-
+        config = self.get_config(guild_id)
+        new_config = self.config_model(**raw_config)
+        new_config.sanitize()
+        new_config.validate()
         # pre-hook
-        self.before_config_patch(guild_id, old_config, new_config)
-
-        config = {k: new_config.get(k, old_config[k]) for k in old_config.keys()}
-
-        # validation
-        config = self.validate_config(guild_id, config)
-
+        self.before_config_patch(guild_id, config, new_config)
         self.config_db.set('config.{}'.format(guild_id),
-                           json.dumps(config))
-
+                           json.dumps(new_config.serialize()))
         # post-hook
-        self.after_config_patch(guild_id, config)
+        self.after_config_patch(guild_id, new_config)
+        return new_config
 
-        return config
+    def patch_config_old(self, guild, partial_new_config):
+        guild_id = get(guild, 'id', guild)
+        config = self.get_config(guild_id)
+        new_config = deepcopy(config)
+        for field_name, field in config.__class__._fields.items():
+            new_value = partial_new_config.get(field_name)
+            if new_value is not None:
+                setattr(new_config, field_name, field.deserialize(new_value))
+        new_config.sanitize()
+        new_config.validate()
+        # pre-hook
+        self.before_config_patch(guild_id, config, new_config)
+        self.config_db.set('config.{}'.format(guild_id),
+                           json.dumps(new_config.serialize()))
+        # post-hook
+        self.after_config_patch(guild_id, new_config)
+        return new_config
 
     def before_config_patch(self, guild_id, old_config, new_config): pass
     def after_config_patch(self, guild_id, config): pass
-    def validate_config(self, guild_id, config): return config
 
     def handle_event(self, payload):
         event_type = payload['t']
-        guild = self._make_guild(payload['g'])
+        guild_id = payload['g']
         data = payload.get('d')
 
         if data:
@@ -199,9 +209,9 @@ class Plugin(Logger):
         listener = get(self, 'on_' + event_type.lower())
         if listener:
             if data:
-                gevent.spawn(listener, guild, decoded_data)
+                gevent.spawn(listener, guild_id, decoded_data)
             else:
-                gevent.spawn(listener, guild)
+                gevent.spawn(listener, guild_id)
 
     @classmethod
     def loop(cls, sleep_time=1):

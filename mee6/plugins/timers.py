@@ -22,12 +22,25 @@ class Timers(Plugin):
     _lock = Semaphore(value=10)
 
     timers_ids = {}
-
     guild_jobs = {}
+    timers = []
 
     def get_default_config(self, guild_id):
         default_config = {'timers': []}
         return default_config
+
+    def on_start(self):
+        with self._lock():
+            guilds = self.get_guilds()
+            self.log('Got {} guilds'.format(len(guilds)))
+
+            timers = [timer for guild in guilds for timer in guild.config.timers]
+            for guild in guilds:
+                timers += guild.config.timers
+
+
+
+
 
     @Plugin.loop(sleep_time=0)
     def loop(self):
@@ -109,16 +122,14 @@ class Timers(Plugin):
         if now < next_announce:
             return next_announce
 
-        with self._lock:
-            last_messages = get_channel_messages(channel, limit=1)
-
         webhook_id = 'timers:{}'.format(channel)
 
         do_post = True
-        if len(last_messages) > 0:
-            last_message = last_messages[-1]
-            if self.db.sismember('plugin.timers.webhooks', last_message.webhook_id):
-                do_post = False
+
+        key = 'channel.{}.last_message_whid'.format(channel)
+        last_message_webhook_id = self.db.get(key)
+        if self.db.sismember('plugin.timers.webhooks', last_message_webhook_id):
+            do_post = False
 
         now = math.floor(time())
 

@@ -109,6 +109,9 @@ class PrefixedRedis:
     def sadd(self, key, *values):
         return self.rdb.sadd(self.pre + key, *values)
 
+    def srem(self, key, *values):
+        return self.rdb.srem(self.pre + key, *values)
+
     def delete(self, key):
         return self.rdb.delete(self.pre + key)
 
