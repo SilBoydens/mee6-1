@@ -202,7 +202,7 @@ class Streamers(Plugin):
         embed.add_field('Viewers', stream['viewers'], True)
 
         message = guild.config.announcement_message
-        message = message.replace('{streamer}', embed.author_name)
+        message = message.replace('{streamer}', embed.author_name.replace('_', '\_')
         message = message.replace('{link}', embed.url)
 
         self.log('[Twitch] Announcing {} to {}'.format(embed.author_name, guild.id))
