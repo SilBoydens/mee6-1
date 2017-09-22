@@ -8,26 +8,6 @@ from mee6.discord import send_message
 from mee6.types import MessageEmbed, Guild
 from mee6.exceptions import APIException
 from mee6.utils import timed
-from modus import Model
-from modus.exceptions import FieldValidationError
-from modus.fields import String, Snowflake, List
-
-
-class StreamerField(String):
-    ERRORS = {'invalid_streamer': '"{0}" is not a valid streamer name'}
-    @String.validator
-    def validate_streamer(self, value):
-        pattern = r'^[a-z0-9_]{3,25}$'
-        if not re.match(pattern, value):
-            msg = self.ERRORS['invalid_streamer'].format(value)
-            raise FieldValidationError(msg) from None
-
-
-class StreamersConfig(Model):
-    announcement_message = String(max_length=1900)
-    announcement_channel = Snowflake()
-    hitbox_streamers = List(StreamerField())
-    twitch_streamers = List(StreamerField())
 
 
 class Streamers(Plugin):
@@ -35,7 +15,6 @@ class Streamers(Plugin):
     id = "streamers"
     name = "Streamers"
     description = "Get notified when your favourite twitch or hitbox streamer go live"
-    config_model = StreamersConfig
 
     twitch_client_id = os.getenv('TWITCH_CLIENT_ID')
 
@@ -121,13 +100,13 @@ class Streamers(Plugin):
 
         embed.add_field('Viewers', stream['category_viewers'] or 0, True)
 
-        message = guild.config.announcement_message
-        message = message.replace('{streamer}', embed.author_name)
+        message = guild.config['announcement_message']
+        message = message.replace('{streamer}', embed.author_name.replace('_', '\_'))
         message = message.replace('{link}', embed.url)
 
         self.log('[Hitbox] Announcing {} to {}'.format(embed.author_name, guild.id))
         try:
-            send_message(guild.config.announcement_channel, message, embed=embed)
+            send_message(guild.config['announcement_channel'], message, embed=embed)
             guild.storage.sadd('announced_hitbox_streams', stream_id)
         except APIException as e:
             self.log('[Hitbox] An error occured {} {} {}'.format(e.status_code,
@@ -201,13 +180,13 @@ class Streamers(Plugin):
 
         embed.add_field('Viewers', stream['viewers'], True)
 
-        message = guild.config.announcement_message
+        message = guild.config['announcement_message']
         message = message.replace('{streamer}', embed.author_name)
         message = message.replace('{link}', embed.url)
 
         self.log('[Twitch] Announcing {} to {}'.format(embed.author_name, guild.id))
         try:
-            send_message(guild.config.announcement_channel, message, embed=embed)
+            send_message(guild.config['announcement_channel'], message, embed=embed)
             guild.storage.sadd('announced_twitch_streams', stream_id)
         except APIException as e:
             self.log('[Twitch] An error occured {} {} {}'.format(e.status_code,
@@ -240,27 +219,59 @@ class Streamers(Plugin):
         return None
 
     def get_default_config(self, guild_id):
-        return StreamersConfig(twitch_streamers=[],
-                               hitbox_streamers=[],
-                               announcement_channel=guild_id,
-                               announcement_message='Hey @everyone! {streamer}' \
-                               ' is now live on {link} ! Go check it out 😉!')
+        default_config = {'twitch_streamers': [],
+                          'hitbox_streamers': [],
+                          'announcement_message': 'Hey @everyone! {streamer}' \
+                          ' is now live on {link} ! Go check it out 😉!',
+                          'announcement_channel': guild_id}
+        return default_config
 
     def before_config_patch(self, guild_id, old_config, new_config):
-        for streamer in old_config.twitch_streamers:
-            key = 'twitch_streamer.{}.guilds'.format(streamer)
-            self.plugin_db.srem(key, guild_id)
+        for streamer in old_config['twitch_streamers']:
+            key = 'plugin.{}.twitch_streamer.{}.guilds'.format(self.id, streamer)
+            self.db.srem(key, guild_id)
 
-        for streamer in old_config.hitbox_streamers:
-            key = 'hitbox_streamer.{}.guilds'.format(streamer)
-            self.plugin_db.srem(key, guild_id)
+        for streamer in old_config['hitbox_streamers']:
+            key = 'plugin.{}.hitbox_streamer.{}.guilds'.format(self.id, streamer)
+            self.db.srem(key, guild_id)
 
     def after_config_patch(self, guild_id, config):
-        for streamer in config.twitch_streamers:
-            key = 'twitch_streamer.{}.guilds'.format(streamer)
-            self.plugin_db.sadd(key, guild_id)
+        for streamer in config['twitch_streamers']:
+            key = 'plugin.{}.twitch_streamer.{}.guilds'.format(self.id, streamer)
+            self.db.sadd(key, guild_id)
 
-        for streamer in config.hitbox_streamers:
-            key = 'hitbox_streamer.{}.guilds'.format(streamer)
-            self.plugin_db.sadd(key, guild_id)
+        for streamer in config['hitbox_streamers']:
+            key = 'plugin.{}.hitbox_streamer.{}.guilds'.format(self.id, streamer)
+            self.db.sadd(key, guild_id)
 
+    def validate_name(self, name):
+        name = name.lower()
+        splitted = [s for s in name.split('/') if s != '']
+
+        if len(splitted) == 0:
+            return None
+
+        name = splitted[-1]
+        if not self.streamer_rx.match(name):
+            return None
+
+        return name
+
+    def validate_config(self, guild_id, config):
+        valid_twitch_streamers = []
+        valid_hitbox_streamers = []
+
+        for streamer in config['twitch_streamers']:
+            validated_streamer = self.validate_name(streamer)
+            if validated_streamer:
+                valid_twitch_streamers.append(validated_streamer)
+
+        for streamer in config['hitbox_streamers']:
+            validated_streamer = self.validate_name(streamer)
+            if validated_streamer:
+                valid_hitbox_streamers.append(validated_streamer)
+
+        config['twitch_streamers'] = valid_twitch_streamers
+        config['hitbox_streamers'] = valid_hitbox_streamers
+
+        return config
